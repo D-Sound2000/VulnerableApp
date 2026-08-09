@@ -54,8 +54,7 @@ public final class PasswordHashingUtils {
 
         String[] saltAndHash = saltedSha256Hash.split(HASH_SEPARATOR, 2);
         if (saltAndHash.length != 2) {
-            // Backward compatibility for old plaintext test data.
-            return saltedSha256Hash.equals(rawPassword);
+            return false;
         }
 
         String calculatedHash = sha256Hex(saltAndHash[0], rawPassword);

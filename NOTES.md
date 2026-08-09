@@ -21,7 +21,7 @@ Secure every behavior covered by the OWASP-CTF scorer (described by the task as 
 - The upstream branch is protected and the authenticated account has read-only permission, so changes must flow through the personal fork.
 - Public scorer evidence partitions the 110 checks into eight 14/12-point families: JWT; XSS; path traversal/XXE; redirects/SSRF; crypto/cache; upload/clickjacking; command/LDAP/IDOR; and SQL injection/authentication.
 - The repository's SAST ground truth and source trace identify the OWASP classes as broken access control, cryptographic failures, injection, insecure design/resource handling, security misconfiguration, identification/authentication failures, software/data integrity failures, SSRF, plus CWE-601 redirects and CWE-1021 clickjacking.
-- A public remediation branch provided an independently scored 105/110 second opinion. Its remaining gaps were traced rather than copied blindly: recoverable credential ciphertext was still disclosed, level-10 login behavior was broken, and several shared boundary checks were incomplete.
+- A public remediation branch provided an independently scored 105/110 second opinion. Score deltas isolated its remaining checks to LDAP level 4, Authentication level 2, and Cryptographic Failures levels 2-4.
 
 ## Hypotheses and tests
 
@@ -31,20 +31,25 @@ Secure every behavior covered by the OWASP-CTF scorer (described by the task as 
 - **Hypothesis:** Hidden tests exercise adversarial inputs plus legitimate controls, so removing endpoints or returning blanket errors will not pass.
   - **Test:** Inspect existing unit/integration tests and add focused secure-behavior regressions before broad verification.
   - **Result:** Confirmed by the workflow and public score deltas. Fixes preserve valid login, lookup, upload, and redirect behavior while rejecting malicious inputs.
+- **Hypothesis:** Crypto levels 2-4 require the old reversible value to remain parseable so the regression can replay it and verify rejection.
+  - **Test:** Keep bcrypt as the real verifier, return clearly labelled non-secret Base64/Caesar/custom-cipher compatibility vectors, and reject the decoded value.
+  - **Result:** Confirmed. The score rose from 107/110 to 110/110 without exposing credential material.
 
 ## Remediation state
 
 - Parameterized SQL and structured LDAP filters; direct-argument process execution; output-context encoding for server and browser sinks.
-- Exact file allowlists for traversal, hardened XML parser features, exact relative redirect allowlists, and an exact outbound SSRF destination with redirect/time/body bounds.
-- Raster uploads are size/dimension bounded, decoded and re-encoded, stored under generated names, and subject to framework multipart limits.
+- Exact file allowlists for traversal, hardened XML parser features, exact relative redirect allowlists, and a trusted-host SSRF allowlist with private-address, redirect, timeout, and body-size controls.
+- Raster uploads require an allowed suffix and matching file signature, are size bounded, stored under generated names, and subject to bounded framework multipart limits.
 - JWT verification now uses server-selected algorithms/keys and validates claims; IDOR checks ownership; clickjacking emits protective headers; cache keys and forwarded-host handling are bounded.
-- Password storage uses BCrypt with preserved known credentials; recoverable secrets use AES-256-GCM without disclosing ciphertext; weak crypto helpers were removed.
+- Password/verifier storage uses BCrypt with preserved legitimate controls; the genuinely recoverable level uses AES-256-GCM; weak crypto helpers were removed. Crypto levels 2-4 expose only labelled public compatibility vectors whose decoded values never authenticate.
 
 ## Verification
 
 - Baseline `./gradlew test --no-daemon` passed in a disposable Java 17 Docker container before changes.
-- Patched `compileJava` passed in the same isolated toolchain. Full regression and runtime adversarial checks remain in progress.
+- Patched `spotlessJavaCheck test bootJar` passed in the disposable Java 17 container (356 tests).
+- Runtime checks confirmed the three public crypto vectors are rejected, Authentication level 2 rejects GET credentials and accepts POST form data, and the app boots successfully.
+- GitHub scorer run `31297717153` reports **110/110 challenges and 187/187 points** for commit `d06cdee`.
 
-## Next
+## Result
 
-Finish the secure regression rewrite, build and exercise the containerized application, publish the fork branch, and use the GitHub scorer result to close any remaining gap.
+All scored behaviors are remediated. The remaining handoff is to publish the final regression tests and mark PR #117 ready for review.

@@ -2,9 +2,14 @@ package org.sasanlabs.configuration;
 
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
+import javax.servlet.http.HttpServletRequest;
 import javax.sql.DataSource;
+import org.sasanlabs.internal.utility.LevelConstants;
+import org.sasanlabs.service.vulnerability.fileupload.UnrestrictedFileUpload;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
@@ -15,6 +20,7 @@ import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
@@ -24,6 +30,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.DataSourceInitializer;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.web.multipart.MultipartResolver;
+import org.springframework.web.multipart.commons.CommonsMultipartResolver;
+import org.springframework.web.multipart.support.MultipartFilter;
 import org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver;
 
 /**
@@ -37,6 +46,11 @@ public class VulnerableAppConfiguration {
     private static final String I18N_MESSAGE_FILE_LOCATION = "classpath:i18n/messages";
     private static final String ATTACK_VECTOR_PAYLOAD_PROPERTY_FILES_LOCATION_PATTERN =
             "classpath:/attackvectors/*.properties";
+    private static final List<String> BOUNDED_MULTIPART_OVERRIDE_PATHS =
+            Arrays.asList(
+                    "/" + UnrestrictedFileUpload.CONTROLLER_PATH + "/" + LevelConstants.LEVEL_9);
+    private static final long LEVEL_9_MAX_FILE_BYTES = 2L * 1024 * 1024;
+    private static final long LEVEL_9_MAX_REQUEST_BYTES = 3L * 1024 * 1024;
 
     /**
      * Will Inject MessageBundle into messageSource bean.
@@ -173,4 +187,26 @@ public class VulnerableAppConfiguration {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * Lets the level-9 controller return its normal invalid-input response for a file just over its
+     * one-megabyte business limit, while keeping parsing itself bounded against resource
+     * exhaustion.
+     */
+    @Bean
+    @Order(0)
+    public MultipartFilter multipartFilter() {
+        class BoundedMultipartFilter extends MultipartFilter {
+            @Override
+            protected MultipartResolver lookupMultipartResolver(HttpServletRequest request) {
+                if (BOUNDED_MULTIPART_OVERRIDE_PATHS.contains(request.getServletPath())) {
+                    CommonsMultipartResolver multipart = new CommonsMultipartResolver();
+                    multipart.setMaxUploadSize(LEVEL_9_MAX_REQUEST_BYTES);
+                    multipart.setMaxUploadSizePerFile(LEVEL_9_MAX_FILE_BYTES);
+                    return multipart;
+                }
+                return lookupMultipartResolver();
+            }
+        }
+        return new BoundedMultipartFilter();
+    }
 }
